@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>登录 · 羽翼同行</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap header-inner">
+    <a class="brand" href="index.html">
+      <span class="brand-mark">W</span>
+      <span class="brand-text">
+        <strong>羽翼同行</strong>
+        <em>Wings for Life</em>
+      </span>
+    </a>
+    <nav class="nav">
+      <a href="index.html">首页</a>
+      <a href="index.html#birds">鸟类图鉴</a>
+      <a href="guangxi.html">观鸟在广西</a>
+      <a href="about.html">保护理念</a>
+    </nav>
+    <div class="account" id="account-area">
+      <a class="btn btn-ghost" href="login.html">登录</a>
+      <a class="btn btn-solid" href="register.html">注册</a>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <section class="page-hero">
+    <div class="wrap">
+      <h1>志愿者登录</h1>
+      <p>登录后可进入用户中心，管理你的账号信息。</p>
+    </div>
+  </section>
+
+  <div class="wrap auth-wrap">
+    <div class="card-panel">
+      <h2>账号登录</h2>
+      <p class="sub">请输入你的用户名与密码。</p>
+
+      <div class="alert alert-err" id="form-alert" style="display:none"></div>
+
+      <form id="login-form" autocomplete="off">
+        <div class="field">
+          <label for="username">用户名</label>
+          <input name="username" id="username" type="text" required>
+        </div>
+
+        <div class="field">
+          <label for="password">密码</label>
+          <input name="password" id="password" type="password" required>
+        </div>
+
+        <button class="btn btn-solid btn-block" type="submit">登录</button>
+      </form>
+
+      <p class="form-foot">
+        还没有账号？<a href="register.html">注册一个</a>
+        &nbsp;·&nbsp;
+        <a href="#" onclick="WF.toast('本站暂未接入邮件服务，无法自助找回密码。','err');return false;">忘记密码？</a>
+      </p>
+    </div>
+  </div>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap footer-inner">
+    <div class="foot-brand">
+      <strong>羽翼同行 · Wings for Life</strong>
+      <p>人或许长不出翅膀，但人可以选择是否同行。</p>
+    </div>
+    <div class="foot-meta">
+      <p>本站为鸟类保护公益宣传站，由志愿者团队自发维护。</p>
+      <p class="muted">图鉴照片来自 iNaturalist 公开观察记录（CC 授权）。</p>
+    </div>
+  </div>
+</footer>
+
+<div id="toast-host"></div>
+<script src="assets/app.js"></script>
+<script src="assets/auth.js"></script>
+</body>
+</html>

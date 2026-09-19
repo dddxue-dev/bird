@@ -1,0 +1,10 @@
+# 注意：不要忽略 docker/ —— Dockerfile 需要 COPY docker/entrypoint.sh
+.git
+.gitignore
+_build
+*.md
+.dockerignore
+docker-compose.yml
+flag.txt
+setup.php
+node_modules

@@ -111,6 +111,20 @@
      连「当前密码校验」都一并消失，当前密码填什么都能成功。
      （已实测验证）
 
+   ⚠ 这一步报「当前密码不正确」的两个常见原因（都不是题目 bug）：
+
+     a) 登录态不对。只有以 birdadmin'# 这个账号登录时，$username 才等于
+        birdadmin'#，`#` 才会出现并注释掉校验。
+        如果是以 linxiaoyu 之类的普通账号登录，SQL 是
+          UPDATE users SET password='hacked123' where username='linxiaoyu' and password='111111'
+        匹配 0 行 → mysql_affected_rows()==0 → 403「当前密码不正确」。
+        这是设计如此：普通账号必须填对当前密码。
+
+     b) 重复执行。注入已经成功过一次后 birdadmin 的密码就是 hacked123 了，
+        再填一次「新密码 hacked123」时 MySQL 匹配到行但值没变化，
+        mysql_affected_rows() 返回 0 → 同样报 403。
+        换个新密码（比如 hacked456）即可。
+
 4. 退出登录，用  birdadmin / hacked123  登录
 
 5. 用户中心显示 Flag

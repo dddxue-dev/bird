@@ -17,8 +17,9 @@ services:
     ports:
       - "8080:80"
     environment:
-      # 这就是动态 Flag 的注入点，平台会覆盖它
-      FLAG: "flag{local_test_flag_change_me}"
+      # 这就是动态 Flag 的注入点，平台会覆盖它。
+      # 本地测试想看到和 PHPStudy 一样的占位值，就保持 flag{12345678}。
+      FLAG: "flag{12345678}"
       DB_NAME: wings
       DB_USER: wings
       DB_PASS: wingspass

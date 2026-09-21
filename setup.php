@@ -130,28 +130,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             mysql_query('CREATE DATABASE IF NOT EXISTS `' . $in['name'] . '` DEFAULT CHARACTER SET utf8mb4');
             if (mysql_select_db($in['name'])) {
                 mysql_query('SET NAMES utf8mb4');
+                // 表结构必须和 api/config.php 的 wings_install() 一致：
+                // utf8mb4_bin 让用户名按字节比较（挡掉大小写/尾随空格变体），
+                // is_admin 是管理员角色位（Flag 出口看的就是它）。
                 mysql_query("CREATE TABLE IF NOT EXISTS `users` (
                     `id` INT(11) NOT NULL AUTO_INCREMENT,
-                    `username` VARCHAR(64) NOT NULL DEFAULT '',
-                    `password` VARCHAR(128) NOT NULL DEFAULT '',
+                    `username` VARCHAR(64) COLLATE utf8mb4_bin NOT NULL DEFAULT '',
+                    `password` VARCHAR(128) COLLATE utf8mb4_bin NOT NULL DEFAULT '',
+                    `is_admin` TINYINT(1) NOT NULL DEFAULT 0,
+                    `salt` VARCHAR(32) NOT NULL DEFAULT '',
                     PRIMARY KEY (`id`),
                     UNIQUE KEY `uniq_username` (`username`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin");
 
                 $r = mysql_query('SELECT COUNT(*) FROM `users`');
                 $row = mysql_fetch_row($r);
                 if ($row && (int) $row[0] === 0) {
                     $seed = array(
-                        array('birdadmin', 'W1ngs@dm1n_2f8c41d9e7b3a6'),
-                        array('linxiaoyu', 'bird2024'),
-                        array('wang' . 'kai', 'wing@123'),
-                        array('zhaoyun',   'nest2024'),
+                        array('birdadmin', 'W1ngs@dm1n_2f8c41d9e7b3a6', 1),
+                        array('linxiaoyu', 'bird2024',                    0),
+                        array('wangkai',   'wing@123',                    0),
+                        array('zhaoyun',   'nest2024',                    0),
                     );
                     foreach ($seed as $u) {
-                        mysql_query("INSERT INTO `users` (`username`,`password`) VALUES ('"
-                            . mysql_escape_string($u[0]) . "','" . mysql_escape_string($u[1]) . "')");
+                        mysql_query("INSERT IGNORE INTO `users` (`username`,`password`,`is_admin`) VALUES ('"
+                            . mysql_escape_string($u[0]) . "','" . mysql_escape_string($u[1]) . "',"
+                            . ($u[2] ? 1 : 0) . ")");
                     }
-                    $extra = '已创建数据库与 users 表，并预置 4 个账号。';
+                    $extra = '已创建数据库与 users 表，并预置 4 个账号（birdadmin 为管理员）。';
                 } else {
                     $extra = 'users 表已存在，未改动数据。';
                 }
@@ -283,7 +289,7 @@ header('Content-Type: text/html; charset=utf-8');
     <p class="muted">不想用本页面，也可以直接用编辑器打开下面这个文件，改 <code>'pass'</code> 的值：</p>
     <pre><?php echo htmlspecialchars($CONFIG_FILE); ?></pre>
     <p class="muted" style="margin-top:14px">
-      改完保存，刷新页面即可，不需要重启 Apache。容器部署时也可以用环境变量覆盖：
+      改完保存，刷新页面即可，不需要重启 Apache。也可以用环境变量覆盖：
       <code>DB_HOST</code> / <code>DB_PORT</code> / <code>DB_USER</code> / <code>DB_PASS</code> / <code>DB_NAME</code>。
     </p>
   </div>

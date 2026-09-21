@@ -7,7 +7,7 @@
  *   1. 读取数据库配置（api/db.config.php，可被环境变量覆盖）
  *   2. 建立 mysql_* 连接
  *   3. 首次运行自动建库 / 建表 / 预置 4 个账号
- *   4. 读取 Flag（环境变量 或 挂载文件）
+ *   4. 读取 Flag（环境变量 FLAG 或项目根目录的 flag.txt）
  *   5. 提供 JSON 输入输出的小工具
  */
 
@@ -132,46 +132,40 @@ if (!function_exists('wings_env')) {
 
     /**
      * 读取 Flag。
-     * 优先级：环境变量  ->  挂载文件  ->  本地调试兜底
-     * 环境变量名兼容 CTFd Whale / GZCTF 常见约定。
+     * 优先级：环境变量 FLAG  ->  项目根目录的 flag.txt  ->  静态占位值
      *
      * ===============================================================
      *  ★ 静态占位 Flag 就在下面最后一行 ★
      * ===============================================================
-     *  现在写死的是  flag{12345678}
+     *  现在写死的是  flag{123455678}
      *
-     *  本地 / PHPStudy 调试时，页面显示的就是这个值。
+     *  本地 PHPStudy 调试时，页面显示的就是这个值，不用做任何配置。
      *
-     *  要换成靶场的动态 Flag，**不需要改这一行** ——
-     *  平台把 FLAG 环境变量注入进来（或挂载 /flag 文件）就会自动覆盖它，
-     *  这一行只是「平台没注入时」的兜底值。
-     *  具体见 README「三、Docker / CTFd Whale 部署 → 动态 Flag 注入」。
+     *  想换成自己的 Flag，**两种方式都行，都不用改代码**：
+     *    1) 在项目根目录放一个 flag.txt，里面写一行真 Flag
+     *       （flag.txt 已在 .gitignore 里，不会被提交）；
+     *    2) 或者给 PHP 设一个环境变量 FLAG。
+     *  两者都没有时，才回退到下面这个占位值。
      */
     function wings_flag()
     {
-        foreach (array('FLAG', 'GZCTF_FLAG', 'CTF_FLAG', 'DASFLAG') as $k) {
-            $v = wings_env($k, '');
+        // 1) 环境变量
+        $v = wings_env('FLAG', '');
+        if ($v !== '') {
+            return trim($v);
+        }
+
+        // 2) 项目根目录的 flag.txt
+        $file = dirname(dirname(__FILE__)) . '/flag.txt';
+        if (is_readable($file)) {
+            $v = trim(file_get_contents($file));
             if ($v !== '') {
-                return trim($v);
+                return $v;
             }
         }
-        $files = array(
-            '/flag',
-            '/flag.txt',
-            '/tmp/flag',
-            '/tmp/flag.txt',
-            dirname(dirname(__FILE__)) . '/flag.txt',
-        );
-        foreach ($files as $f) {
-            if (is_readable($f)) {
-                $v = trim(file_get_contents($f));
-                if ($v !== '') {
-                    return $v;
-                }
-            }
-        }
-        // ★★★ 静态占位 Flag：本地调试显示的就是这个值 ★★★
-        return 'flag{12345678}';
+
+        // 3) 静态占位 Flag：本地调试显示的就是这个值
+        return 'flag{123455678}';
     }
 
     // ----------------------- JSON 小工具 -----------------------
@@ -227,16 +221,99 @@ if (!function_exists('wings_env')) {
 
     // ----------------------- 建表 / 预置数据 -----------------------
 
-    /** 建表 + 预置账号（仅在首次运行时执行） */
+    /**
+     * 生成管理员随机口令。
+     *
+     * 为什么管理员口令最好别写死：
+     *   这是一道二次注入题，正确解法是「把 birdadmin 的口令改成自己知道的值」。
+     *   如果 birdadmin 的口令是固定的、而且这个实例被反复使用，
+     *   那么先打通的人把口令改成某个值之后，后来的人直接用它登录就能拿到 Flag，
+     *   题目就退化成「猜一个已知口令」。
+     *
+     *   需要「每个实例的口令都不一样」时，把环境变量 WINGS_RANDOM_ADMIN 设成 1，
+     *   预置账号时就会现掷一条随机口令 —— 出题人不去读数据库也拿不到它，
+     *   唯一能拿到 Flag 的路就只剩「把它改掉，再用新口令登录」。
+     *
+     * 兼容性：random_bytes() 要 PHP 7，openssl_random_pseudo_bytes() 要 PHP 5.3，
+     *         两者都没有时退到 mt_rand()（本地极老的 PHP 才会走到这里）。
+     */
+    function wings_random_admin_password($len = 24)
+    {
+        $alphabet = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789@#%+=?';
+        $max      = strlen($alphabet) - 1;
+        $out      = '';
+
+        if (function_exists('random_bytes')) {
+            try {
+                $bytes = random_bytes($len);
+            } catch (Exception $e) {
+                $bytes = null;
+            }
+        } elseif (function_exists('openssl_random_pseudo_bytes')) {
+            $bytes = openssl_random_pseudo_bytes($len);
+        } else {
+            $bytes = null;
+        }
+
+        if (is_string($bytes) && strlen($bytes) >= $len) {
+            for ($i = 0; $i < $len; $i++) {
+                $out .= $alphabet[ord($bytes[$i]) % ($max + 1)];
+            }
+            return $out;
+        }
+
+        for ($i = 0; $i < $len; $i++) {
+            $out .= $alphabet[mt_rand(0, $max)];
+        }
+        return $out;
+    }
+
+    /**
+     * 取预置账号时要用的管理员口令。
+     *
+     * 默认是下面这个固定的字符串 —— 方便本地 PHPStudy 调试：
+     * 你随时可以用 birdadmin / W1ngs@dm1n_2f8c41d9e7b3a6 登录看看管理员视角，
+     * 也可以用它来确认「改密注入确实改掉了管理员的密码」。
+     *
+     * 如果这个实例会被多人/多轮反复使用，建议改成随机的：
+     * 给 PHP 设环境变量 WINGS_RANDOM_ADMIN=1 即可，代码不用动。
+     * 注意只在「首次预置账号」时生效 —— 库里已经有账号时不会再掷。
+     */
+    function wings_admin_seed_password()
+    {
+        $rand = wings_env('WINGS_RANDOM_ADMIN', '');
+        if ($rand !== '' && $rand !== '0') {
+            return wings_random_admin_password();
+        }
+        return 'W1ngs@dm1n_2f8c41d9e7b3a6';
+    }
+
+    /**
+     * 建表 + 预置账号（仅在首次运行时执行）
+     *
+     * === 关于建表语句里的两个「防御性」设置（都不影响解题链路）===
+     *
+     *   1. `is_admin` 列 —— 权限判断不再依赖「用户名是不是等于 birdadmin」
+     *      这个字符串比较，而是查数据库里的角色位。这样即便 MySQL 的非二进制
+     *      排序规则把 'birdadmin ' / 'BirdAdmin' 当成相等的名字，也拿不到管理员
+     *      身份（唯一索引 + 角色位是两层独立的防线）。
+     *
+     *   2. COLLATE utf8mb4_bin —— 用户名按「字节」比较，大小写/尾随空格变体
+     *      会被唯一索引直接拦在注册这一步。
+     *      注意：这不会挡住 payload，payload 里的 ' # 等字符照常原样入库，
+     *      二次注入链路完全不受影响。
+     */
     function wings_install()
     {
         $create = "CREATE TABLE IF NOT EXISTS `users` (
             `id` INT(11) NOT NULL AUTO_INCREMENT,
-            `username` VARCHAR(64) NOT NULL DEFAULT '',
-            `password` VARCHAR(128) NOT NULL DEFAULT '',
+            `username` VARCHAR(64) COLLATE utf8mb4_bin NOT NULL DEFAULT '',
+            `password` VARCHAR(128) COLLATE utf8mb4_bin NOT NULL DEFAULT '',
+            `is_admin` TINYINT(1) NOT NULL DEFAULT 0,
+            `salt` VARCHAR(32) NOT NULL DEFAULT '',
             PRIMARY KEY (`id`),
             UNIQUE KEY `uniq_username` (`username`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin";
 
         if (mysql_query($create) === false) {
             return false;
@@ -244,27 +321,110 @@ if (!function_exists('wings_env')) {
         return wings_seed();
     }
 
-    /** 预置 4 个账号（birdadmin 的密码为随机强口令，仅出题人可知） */
+    /**
+     * 老库升级：把早期版本的 users 表补成当前结构。
+     *
+     * 已经跑过旧版题目的机器（表里只有 id/username/password），
+     * 直接换成新代码会报「Unknown column 'is_admin'」，所以这里做一次幂等升级。
+     * 每一句都用「失败了也无所谓」的方式执行 —— 迁移不该把站点拖垮。
+     */
+    function wings_upgrade_schema()
+    {
+        // 1) 补 is_admin 列
+        $fields = array();
+        $res = mysql_query("SHOW COLUMNS FROM `users` LIKE 'is_admin'");
+        if ($res !== false) {
+            while ($r = mysql_fetch_row($res)) {
+                $fields[] = $r[0];
+            }
+        }
+        if (empty($fields)) {
+            mysql_query("ALTER TABLE `users` ADD COLUMN `is_admin` TINYINT(1) NOT NULL DEFAULT 0");
+            mysql_query("UPDATE `users` SET `is_admin`=1 WHERE `username`='birdadmin'");
+        }
+
+        // 2) 补 salt 列（预留字段，保持与建表语句一致）
+        $res = mysql_query("SHOW COLUMNS FROM `users` LIKE 'salt'");
+        $has_salt = false;
+        if ($res !== false) {
+            while ($r = mysql_fetch_row($res)) {
+                $has_salt = true;
+            }
+        }
+        if (!$has_salt) {
+            mysql_query("ALTER TABLE `users` ADD COLUMN `salt` VARCHAR(32) NOT NULL DEFAULT ''");
+        }
+
+        // 3) 用户名/密码列改成字节比较，挡掉大小写与尾随空格变体
+        $res = mysql_query("SELECT COLLATION_NAME FROM information_schema.COLUMNS
+                            WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='users'
+                              AND COLUMN_NAME='username' LIMIT 1");
+        if ($res !== false) {
+            $r = mysql_fetch_row($res);
+            if ($r && isset($r[0]) && $r[0] !== '' && strtolower($r[0]) !== 'utf8mb4_bin') {
+                mysql_query("ALTER TABLE `users`
+                             MODIFY `username` VARCHAR(64) COLLATE utf8mb4_bin NOT NULL DEFAULT '',
+                             MODIFY `password` VARCHAR(128) COLLATE utf8mb4_bin NOT NULL DEFAULT ''");
+            }
+        }
+        return true;
+    }
+
+    /**
+     * 预置 4 个账号。
+     *
+     *   birdadmin  —— 站点管理员，is_admin=1，口令随机（见 wings_admin_seed_password）
+     *   linxiaoyu / wangkai / zhaoyun —— 普通志愿者，固定口令，方便选手对照
+     *
+     * 注意：这里必须用 INSERT IGNORE / 容错处理 —— 多队伍并发首次访问时，
+     *       两个请求可能同时走到这一步，唯一索引会把晚到的那条顶掉，属正常情况。
+     */
     function wings_seed()
     {
+        wings_upgrade_schema();
+
         $res = mysql_query("SELECT COUNT(*) FROM `users`");
         $row = mysql_fetch_row($res);
         if ($row && (int) $row[0] > 0) {
             return true;
         }
 
+        $admin_pass = wings_admin_seed_password();
+
         $seed = array(
-            array('birdadmin', 'W1ngs@dm1n_2f8c41d9e7b3a6'),
-            array('linxiaoyu', 'bird2024'),
-            array('wangkai',   'wing@123'),
-            array('zhaoyun',   'nest2024'),
+            array('birdadmin', $admin_pass,     1),
+            array('linxiaoyu', 'bird2024',      0),
+            array('wangkai',   'wing@123',      0),
+            array('zhaoyun',   'nest2024',      0),
         );
         foreach ($seed as $u) {
             $n = mysql_escape_string($u[0]);
             $p = mysql_escape_string($u[1]);
-            mysql_query("INSERT INTO `users` (`username`, `password`) VALUES ('$n', '$p')");
+            $a = $u[2] ? 1 : 0;
+            mysql_query("INSERT IGNORE INTO `users` (`username`, `password`, `is_admin`)
+                         VALUES ('$n', '$p', $a)");
         }
         return true;
+    }
+
+    /**
+     * 判断某个用户名在库里是不是管理员（按角色位，不做字符串比较）。
+     *
+     * 用 SELECT * 取列而不是写死索引位置 —— 以后加列也不会错位。
+     * 返回：true / false。查不到这个用户、或者库还是旧结构没有 is_admin 列时返回 false。
+     */
+    function wings_is_admin_user($username)
+    {
+        $u = mysql_escape_string($username);
+        $res = mysql_query("SELECT `is_admin` FROM `users` WHERE `username`='$u' LIMIT 1");
+        if ($res === false) {
+            return false;
+        }
+        $row = mysql_fetch_row($res);
+        if (!$row) {
+            return false;
+        }
+        return ((int) $row[0]) === 1;
     }
 }
 
@@ -359,15 +519,35 @@ if (!mysql_query('SET NAMES utf8mb4')) {
 }
 
 // ---------------------------------------------------------------
-// 4. 首次运行自动建表 + 预置账号
+// 4. 首次运行自动建表 + 预置账号（老库自动升级到当前结构）
 // ---------------------------------------------------------------
 $__t = mysql_query('SELECT COUNT(*) FROM `users`');
 if ($__t === false) {
+    // 表不存在（全新机器 / 用户删过库）→ 建表并预置账号
     wings_install();
 } else {
+    // 表在，但可能是旧版本建的 —— 先补齐 is_admin / salt 列与列排序规则。
+    wings_upgrade_schema();
+
     $__r = mysql_fetch_row($__t);
-    if ($__r && (int) $__r[0] === 0) {
+    $__n = ($__r && isset($__r[0])) ? (int) $__r[0] : 0;
+
+    if ($__n === 0) {
+        // 情况一：表是空的（用户清过数据）
         wings_seed();
+    } else {
+        // 情况二：表里有数据，但一个管理员都没有 —— 大多是 db/init.sql 或
+        // 老版本预置的数据（那时还没有 is_admin 列）。自动补一个管理员，
+        // 避免出现「站点没有 birdadmin，题目直接无解」的情况。
+        $__a = mysql_query("SELECT COUNT(*) FROM `users` WHERE `is_admin`=1 AND `username`='birdadmin'");
+        $__ar = $__a !== false ? mysql_fetch_row($__a) : false;
+        if (!$__ar || (int) $__ar[0] === 0) {
+            $__ap = mysql_escape_string(wings_admin_seed_password());
+            mysql_query("INSERT IGNORE INTO `users` (`username`, `password`, `is_admin`)
+                         VALUES ('birdadmin', '$__ap', 1)");
+            mysql_query("UPDATE `users` SET `is_admin`=1 WHERE `username`='birdadmin'");
+        }
+        unset($__a, $__ar, $__ap);
     }
 }
-unset($__t, $__r, $__tmp);
+unset($__t, $__r, $__n, $__tmp);

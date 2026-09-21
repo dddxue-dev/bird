@@ -15,7 +15,7 @@
  *    - 打开 PHPStudy 面板 -> 数据库 -> 看 root 的密码；
  *    - 或者直接访问 http://你的站点/setup.php 用图形界面测试并写入。
  *
- *  Docker / CTFd Whale 部署时，可以用环境变量覆盖本文件：
+ *  也可以不改本文件，改用环境变量覆盖（php.ini / Apache SetEnv 都行）：
  *    DB_HOST / DB_PORT / DB_USER / DB_PASS / DB_NAME
  */
 

@@ -34,7 +34,16 @@ if ($pass !== $re_pass) {
 }
 
 // 查重（已转义，注入不进来）
-$sql = "SELECT count(*) FROM `users` WHERE username='$username'";
+//
+// 为什么要 BINARY：
+//   username 列虽然是 utf8mb4_bin（大小写敏感），但它仍然是 PAD SPACE 排序规则 ——
+//   MySQL 比较时会忽略尾随空格，于是 'birdadmin ' 和 'birdadmin' 会被视为重复。
+//   这对唯一索引是好事（变体注册不进来），但会让「查重」和「登录」的语义出现
+//   细微偏差。这里加 BINARY 强制按字节比较，把「用户名相同」定义得没有歧义：
+//     大小写不同 → 不是同一个名字（会被唯一索引放行，但也没关系，见下）
+//     尾随空格   → 不是同一个名字，但唯一索引仍会拦住（PAD SPACE 生效）
+//   两种情况下都不可能蹭到 birdadmin 的 is_admin —— 角色位只看那一行数据。
+$sql = "SELECT count(*) FROM `users` WHERE BINARY username='$username'";
 $res = mysql_query($sql);
 if ($res === false) {
     wings_fail('注册失败，请稍后重试', 'query_error', 500);

@@ -131,31 +131,31 @@ if (!function_exists('wings_env')) {
     }
 
     /**
-     * 读取 Flag。
-     * 优先级：环境变量 FLAG  ->  项目根目录的 flag.txt  ->  静态占位值
+     * 读取动态 Flag。
      *
-     * ===============================================================
-     *  ★ 静态占位 Flag 就在下面最后一行 ★
-     * ===============================================================
-     *  现在写死的是  flag{123455678}
+     * 取值顺序（命中即返回）：
+     *   1. 环境变量 FLAG
+     *   2. 环境变量 DASFLAG
+     *   3. 环境变量 GZCTF_FLAG
+     *   4. 项目根目录的 flag.txt（本地调试兜底）
      *
-     *  本地 PHPStudy 调试时，页面显示的就是这个值，不用做任何配置。
+     * 这里不保留任何静态占位值 —— 宁可返回空，也不要返回一个
+     * 「看起来像 flag」的常量，否则取值失败时所有人会拿到同一个 flag。
      *
-     *  想换成自己的 Flag，**两种方式都行，都不用改代码**：
-     *    1) 在项目根目录放一个 flag.txt，里面写一行真 Flag
-     *       （flag.txt 已在 .gitignore 里，不会被提交）；
-     *    2) 或者给 PHP 设一个环境变量 FLAG。
-     *  两者都没有时，才回退到下面这个占位值。
+     * 注意 getenv() / $_ENV / $_SERVER 三种来源都要覆盖：
+     * variables_order 不含 E 时 $_ENV 是空的，只能靠 getenv()。
      */
     function wings_flag()
     {
-        // 1) 环境变量
-        $v = wings_env('FLAG', '');
-        if ($v !== '') {
-            return trim($v);
+        // 1~3) 依次尝试三个环境变量名
+        foreach (array('FLAG', 'DASFLAG', 'GZCTF_FLAG') as $name) {
+            $v = wings_env($name, '');
+            if ($v !== '') {
+                return trim($v);
+            }
         }
 
-        // 2) 项目根目录的 flag.txt
+        // 4) 兜底：项目根目录的 flag.txt
         $file = dirname(dirname(__FILE__)) . '/flag.txt';
         if (is_readable($file)) {
             $v = trim(file_get_contents($file));
@@ -164,8 +164,10 @@ if (!function_exists('wings_env')) {
             }
         }
 
-        // 3) 静态占位 Flag：本地调试显示的就是这个值
-        return 'flag{123455678}';
+        // 一个都没读到：说明平台没把 FLAG 注进来。
+        // 这里返回空串而**不是**任何常量 —— 让问题暴露出来，
+        // 而不是伪装成一个"正常"的 flag。
+        return '';
     }
 
     // ----------------------- JSON 小工具 -----------------------
@@ -222,20 +224,10 @@ if (!function_exists('wings_env')) {
     // ----------------------- 建表 / 预置数据 -----------------------
 
     /**
-     * 生成管理员随机口令。
-     *
-     * 为什么管理员口令最好别写死：
-     *   这是一道二次注入题，正确解法是「把 birdadmin 的口令改成自己知道的值」。
-     *   如果 birdadmin 的口令是固定的、而且这个实例被反复使用，
-     *   那么先打通的人把口令改成某个值之后，后来的人直接用它登录就能拿到 Flag，
-     *   题目就退化成「猜一个已知口令」。
-     *
-     *   需要「每个实例的口令都不一样」时，把环境变量 WINGS_RANDOM_ADMIN 设成 1，
-     *   预置账号时就会现掷一条随机口令 —— 出题人不去读数据库也拿不到它，
-     *   唯一能拿到 Flag 的路就只剩「把它改掉，再用新口令登录」。
+     * 生成随机口令（24 位，含大小写字母 / 数字 / 符号）。
      *
      * 兼容性：random_bytes() 要 PHP 7，openssl_random_pseudo_bytes() 要 PHP 5.3，
-     *         两者都没有时退到 mt_rand()（本地极老的 PHP 才会走到这里）。
+     *         两者都没有时退到 mt_rand()。
      */
     function wings_random_admin_password($len = 24)
     {
@@ -271,13 +263,8 @@ if (!function_exists('wings_env')) {
     /**
      * 取预置账号时要用的管理员口令。
      *
-     * 默认是下面这个固定的字符串 —— 方便本地 PHPStudy 调试：
-     * 你随时可以用 birdadmin / W1ngs@dm1n_2f8c41d9e7b3a6 登录看看管理员视角，
-     * 也可以用它来确认「改密注入确实改掉了管理员的密码」。
-     *
-     * 如果这个实例会被多人/多轮反复使用，建议改成随机的：
-     * 给 PHP 设环境变量 WINGS_RANDOM_ADMIN=1 即可，代码不用动。
-     * 注意只在「首次预置账号」时生效 —— 库里已经有账号时不会再掷。
+     * 环境变量 WINGS_RANDOM_ADMIN 非空时现场随机生成，否则用固定默认值。
+     * 只在「首次预置账号」时生效 —— 库里已有账号时不会再掷。
      */
     function wings_admin_seed_password()
     {
@@ -289,19 +276,10 @@ if (!function_exists('wings_env')) {
     }
 
     /**
-     * 建表 + 预置账号（仅在首次运行时执行）
+     * 建表 + 预置账号（仅在首次运行时执行）。
      *
-     * === 关于建表语句里的两个「防御性」设置（都不影响解题链路）===
-     *
-     *   1. `is_admin` 列 —— 权限判断不再依赖「用户名是不是等于 birdadmin」
-     *      这个字符串比较，而是查数据库里的角色位。这样即便 MySQL 的非二进制
-     *      排序规则把 'birdadmin ' / 'BirdAdmin' 当成相等的名字，也拿不到管理员
-     *      身份（唯一索引 + 角色位是两层独立的防线）。
-     *
-     *   2. COLLATE utf8mb4_bin —— 用户名按「字节」比较，大小写/尾随空格变体
-     *      会被唯一索引直接拦在注册这一步。
-     *      注意：这不会挡住 payload，payload 里的 ' # 等字符照常原样入库，
-     *      二次注入链路完全不受影响。
+     * 两个约束：`is_admin` 用角色位列，权限判断不依赖用户名比较；
+     * username 列用 utf8mb4_bin 按字节比较。
      */
     function wings_install()
     {
